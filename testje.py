@@ -51,8 +51,21 @@ def SieveOfEratosthenes(num):
         if is_prime[p]:
             print(p)
 
+def write_junk(lines):
+    with open("junk.txt"):
+        for line in lines:
+            if line == "q":
+                break
+            else:
+                print(line)
+        else:
+            print("no more lines!")
+
+
+
 
 # graph = to_flowchart(fizzbuzz2)
-graph = to_flowchart(other_function)
+# graph = to_flowchart(other_function)
 # graph = to_flowchart(SieveOfEratosthenes)
+graph = to_flowchart(write_junk)
 print(graph.to_string(indent=2))

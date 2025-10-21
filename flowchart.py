@@ -55,32 +55,49 @@ def collect_nodes(body, graph, loop_head=None, loop_tail=None):
 def handle_node(ast_object, graph, loop_head=None, loop_tail=None):
     name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
     match ast_object:
-        case ast.For(target=target_ast, iter=iter_ast):
-            head_node = Node(name=name, shape="diamond",
-                        label=f"for {ast.unparse(target_ast)} in {ast.unparse(iter_ast)}")
+        case ast.For(target=target_ast, iter=iter_ast, orelse=else_ast):
+            target = ast.unparse(target_ast)
+            head_node = Node(name=f"{name}_head", shape="block",
+                        label=f"for {target} in {ast.unparse(iter_ast)}")
+            next_node = Node(name=f"{name}_next", shape="diamond", label=f"next {target}?")
             tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
             inner_head, inner_tail = collect_nodes(ast_object.body, graph, head_node, tail_node)
             graph.add_node(head_node)
+            graph.add_node(next_node)
             graph.add_node(tail_node)
-            graph.add_edge(Edge(head_node, inner_head, label="next"))
-            graph.add_edge(Edge(inner_tail, head_node))
-            graph.add_edge(Edge(head_node, tail_node, label="StopIteration", dir="none"))
+            graph.add_edge(Edge(head_node, next_node))
+            graph.add_edge(Edge(next_node, inner_head, label="Yes"))
+            graph.add_edge(Edge(inner_tail, next_node))
+
+            if else_ast:
+                inner_head, inner_tail = collect_nodes(else_ast, graph, loop_head, loop_tail)
+                graph.add_edge(Edge(next_node, inner_head, label="No"))
+                graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
+            else:
+                graph.add_edge(Edge(next_node, tail_node, label="No", dir="none"))
+
             return head_node, tail_node
 
-        case ast.While(test=test_ast):
-            head_node = Node(name=name, shape="diamond", label=ast.unparse(test_ast))
+        case ast.While(test=test_ast, orelse=else_ast):
+            head_node = Node(name=name, shape="diamond", label=ast.unparse(test_ast) + "?")
             tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
             inner_head, inner_tail = collect_nodes(ast_object.body, graph, head_node, tail_node)
 
             graph.add_node(head_node)
             graph.add_node(tail_node)
-            graph.add_edge(Edge(head_node, tail_node, label="False", dir="none"))
             graph.add_edge(Edge(head_node, inner_head, label="True"))
             graph.add_edge(Edge(inner_tail, head_node))
+
+            if else_ast:
+                inner_head, inner_tail = collect_nodes(else_ast, graph, loop_head, loop_tail)
+                graph.add_edge(Edge(head_node, inner_head, label="False"))
+                graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
+            else:
+                graph.add_edge(Edge(head_node, tail_node, label="False", dir="none"))
             return head_node, tail_node
 
         case ast.If(test=test_ast, orelse=else_ast):
-            head_node = Node(name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast))
+            head_node = Node(name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
             tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
 
             graph.add_node(head_node)
@@ -115,6 +132,20 @@ def handle_node(ast_object, graph, loop_head=None, loop_tail=None):
 
                 if case_tail:  # or break/continue
                     graph.add_edge(Edge(case_tail, tail_node, dir="none"))
+
+            return head_node, tail_node
+
+        case ast.With(items, body):
+            head_node, tail_node = collect_nodes(body, graph, loop_head, loop_tail)
+
+            for i, item_ast in enumerate(items):
+                enter_node = Node(name=f"item_{ast_object.lineno}_{i}_enter", shape="parallelogram", label=ast.unparse(item_ast))
+                exit_node = Node(name=f"item_{ast_object.lineno}_{i}_exit", shape="parallelogram", label=f"exit {ast.unparse(item_ast.context_expr)}")
+                graph.add_node(enter_node)
+                graph.add_node(exit_node)
+                graph.add_edge(Edge(enter_node, head_node))
+                graph.add_edge(Edge(tail_node, exit_node))
+                head_node, tail_node = enter_node, exit_node
 
             return head_node, tail_node
 
