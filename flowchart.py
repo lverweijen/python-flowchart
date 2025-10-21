@@ -149,6 +149,40 @@ def handle_node(ast_object, graph, loop_head=None, loop_tail=None):
 
             return head_node, tail_node
 
+        case (ast.Try(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)
+              | ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)):
+            sg = Subgraph(f"cluster_{name}")
+            sg.set_graph_defaults(style="dashed")
+            head_node, body_tail = collect_nodes(body, sg, loop_head, loop_tail)
+            graph.add_subgraph(sg)
+            handler_node = Node(name=name + "_begin", label="exceptions?", shape="diamond")
+            handler_tail = Node(name=name + "_end", shape="point", width=0)
+            graph.add_node(handler_node)
+            graph.add_node(handler_tail)
+            graph.add_edge(Edge(body_tail, handler_node))
+
+            for handler in handlers:
+                inner_head, inner_tail = collect_nodes(handler.body, graph, loop_head, loop_tail)
+                graph.add_edge(Edge(handler_node, inner_head, label=ast.unparse(handler.type)))
+                graph.add_edge(Edge(inner_tail, handler_tail, dir="none"))
+
+            if orelse:
+                inner_head, inner_tail = collect_nodes(orelse, graph, loop_head, loop_tail)
+                graph.add_edge(Edge(handler_node, inner_head, label="None"))
+                graph.add_edge(Edge(inner_tail, handler_tail, dir="none"))
+
+            if finalbody:
+                final_node = Node(name=name + "_final", shape="point", width=0)
+                graph.add_node(final_node)
+                inner_head, inner_tail = collect_nodes(orelse, graph, loop_head, loop_tail)
+                graph.add_edge(Edge(handler_tail, inner_head))
+                graph.add_edge(Edge(inner_tail, final_node, dir="none"))
+                tail_node = final_node
+            else:
+                tail_node = handler_tail
+
+            return head_node, tail_node
+
         case _:
             node = Node(name=name, shape="box", label=ast.unparse(ast_object))
             graph.add_node(node)

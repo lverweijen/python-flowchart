@@ -61,6 +61,15 @@ def write_junk(lines):
         else:
             print("no more lines!")
 
+    try:
+        (a + 1) / b
+    except TypeError:
+        pass
+    except ValueError:
+        print("Is division even possible?")
+    else:
+        print("No worries")
+
 
 
 
