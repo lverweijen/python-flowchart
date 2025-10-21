@@ -2,7 +2,7 @@ import ast
 import inspect
 
 from abstracttree import print_tree
-from pydot import Dot, Node, Edge
+from pydot import Dot, Node, Edge, Subgraph
 
 
 def to_flowchart(f):
@@ -20,7 +20,10 @@ def to_flowchart(f):
     head_node, tail_node = collect_nodes(function_ast.body, graph)
     graph.add_edge(Edge(start_node, head_node))
 
+    sink_subgraph = Subgraph(rank="sink")
     stop_node = Node("stop", rank="sink")
+    sink_subgraph.add_node(stop_node)
+    graph.add_subgraph(sink_subgraph)
     graph.add_edge(Edge(tail_node, stop_node))
 
     return graph

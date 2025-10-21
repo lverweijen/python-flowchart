@@ -53,6 +53,6 @@ def SieveOfEratosthenes(num):
 
 
 # graph = to_flowchart(fizzbuzz2)
-# graph = to_flowchart(other_function)
-graph = to_flowchart(SieveOfEratosthenes)
-print(graph.to_string())
+graph = to_flowchart(other_function)
+# graph = to_flowchart(SieveOfEratosthenes)
+print(graph.to_string(indent=2))
