@@ -60,6 +60,7 @@ def write_junk(lines):
                 print(line)
         else:
             print("no more lines!")
+            return 5
 
     try:
         (a + 1) / b

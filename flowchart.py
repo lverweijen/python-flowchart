@@ -1,5 +1,7 @@
 import ast
 import inspect
+from dataclasses import dataclass
+from typing import Optional
 
 from abstracttree import print_tree
 from pydot import Dot, Node, Edge, Subgraph
@@ -17,173 +19,206 @@ def to_flowchart(f):
 
     start_node = Node("start", rank="source")
     graph.add_node(start_node)
-    head_node, tail_node = collect_nodes(function_ast.body, graph)
+    # head_node, tail_node, sinks = collect_nodes(function_ast.body, graph)
+    flow = collect_body(graph, function_ast.body, None)
+    # head_node, tail_node, sinks = collect_nodes(function_ast.body, graph)
+    head_node = flow.head
+    tail_node = flow.tail
+    sinks = flow.sinks
     graph.add_edge(Edge(start_node, head_node))
 
     sink_subgraph = Subgraph(rank="sink")
-    stop_node = Node("stop", rank="sink")
-    sink_subgraph.add_node(stop_node)
+    if tail_node:
+        stop_node = Node("stop", rank="sink")
+        sink_subgraph.add_node(stop_node)
+        graph.add_edge(Edge(tail_node, stop_node))
+
+    for sink in sinks:
+        sink_subgraph.add_node(sink)
+
     graph.add_subgraph(sink_subgraph)
-    graph.add_edge(Edge(tail_node, stop_node))
 
     return graph
 
 
-def collect_nodes(body, graph, loop_head=None, loop_tail=None):
-    head_node, tail_node = None, None
+@dataclass
+class Flow:
+    head: Node
+    tail: Optional[Node] = None
+    sinks: tuple[Node, ...] = ()
+
+
+def connect_nodes(graph, node1, node2, **kwargs):
+    if node1 is None or node2 is None:
+        return None
+
+    edge = Edge(node1, node2, **kwargs)
+    graph.add_edge(edge)
+    return edge
+
+
+def collect_body(graph, body, loop_flow: Flow) -> Flow:
+    head, tail, sinks = None, None, ()
 
     for ast_object in body:
-        if isinstance(ast_object, ast.Break):
-            next_node, next_tail = loop_tail, None
-            label, dir = "break", "none"
-        elif isinstance(ast_object, ast.Continue):
-            next_node, next_tail = loop_head, None
-            label, dir = "continue", "none"
-        else:
-            next_node, next_tail = handle_node(ast_object, graph, loop_head, loop_tail)
-            label, dir = "", "forward"
+        name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
+        match ast_object:
+            case ast.Break():
+                connect_nodes(graph, head, loop_flow.tail, label="break", dir="none")
+                return Flow(head or loop_flow.tail, None, sinks)
+            case ast.Continue():
+                connect_nodes(graph, head, loop_flow.head, label="continue", dir="none")
+                return Flow(head or loop_flow.head, None, sinks)
+            case ast.Return() | ast.Raise():
+                sink_node = Node(name, shape="oval", label=ast.unparse(ast_object))
+                connect_nodes(graph, tail, sink_node)
+                return Flow(head or sink_node, None, sinks + (sink_node,))
+            case _:
+                next_flow = process_construct(graph, ast_object, loop_flow)
+                connect_nodes(graph, tail, next_flow.head)
+                tail = next_flow.tail
+                sinks += next_flow.sinks
 
-        if not head_node:
-            head_node = next_node
-        if tail_node:
-            graph.add_edge(Edge(tail_node, next_node, label=label, dir=dir))
-        tail_node = next_tail
+                if head is None:
+                    head = next_flow.head
 
-    return head_node, tail_node
+    return Flow(head, tail, sinks)
 
 
-def handle_node(ast_object, graph, loop_head=None, loop_tail=None):
+def create_node(graph, **kwargs):
+    node = Node(**kwargs)
+    graph.add_node(node)
+    return node
+
+
+def process_construct(graph, ast_object, loop_flow=None) -> Flow:
     name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
     match ast_object:
-        case ast.For(target=target_ast, iter=iter_ast, orelse=else_ast):
-            target = ast.unparse(target_ast)
-            head_node = Node(name=f"{name}_head", shape="block",
-                        label=f"for {target} in {ast.unparse(iter_ast)}")
-            next_node = Node(name=f"{name}_next", shape="diamond", label=f"next {target}?")
-            tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
-            inner_head, inner_tail = collect_nodes(ast_object.body, graph, head_node, tail_node)
-            graph.add_node(head_node)
-            graph.add_node(next_node)
-            graph.add_node(tail_node)
-            graph.add_edge(Edge(head_node, next_node))
-            graph.add_edge(Edge(next_node, inner_head, label="Yes"))
-            graph.add_edge(Edge(inner_tail, next_node))
+        case ast.For(body=body, target=target_ast, iter=iter_ast, orelse=orelse):
+            head_node = create_node(graph, name=f"{name}_head", shape="block", label=f"for {ast.unparse(target_ast)} in {ast.unparse(iter_ast)}")
+            next_node = create_node(graph, name=f"{name}_next", shape="diamond", label=f"next {ast.unparse(target_ast)}?")
+            connect_nodes(graph, head_node, next_node)
+            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
+            sinks = ()
 
-            if else_ast:
-                inner_head, inner_tail = collect_nodes(else_ast, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(next_node, inner_head, label="No"))
-                graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
+            if body:
+                body_flow = collect_body(graph, body, Flow(head_node, tail_node))
+                connect_nodes(graph, next_node, body_flow.head, label="Yes")
+                connect_nodes(graph, body_flow.tail, next_node)
+                sinks += body_flow.sinks
+            if orelse:
+                else_flow = collect_body(graph, orelse, loop_flow)
+                connect_nodes(graph, next_node, else_flow.head, label="No")
+                connect_nodes(graph, else_flow.tail, tail_node, dir="none")
+                sinks += else_flow.sinks
             else:
-                graph.add_edge(Edge(next_node, tail_node, label="No", dir="none"))
+                connect_nodes(graph, next_node, tail_node, label="No", dir="none")
 
-            return head_node, tail_node
+            return Flow(head_node, tail_node, sinks)
 
-        case ast.While(test=test_ast, orelse=else_ast):
-            head_node = Node(name=name, shape="diamond", label=ast.unparse(test_ast) + "?")
-            tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
-            inner_head, inner_tail = collect_nodes(ast_object.body, graph, head_node, tail_node)
+        case ast.While(test=test_ast, body=body, orelse=orelse):
+            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
+            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
+            sinks = ()
 
-            graph.add_node(head_node)
-            graph.add_node(tail_node)
-            graph.add_edge(Edge(head_node, inner_head, label="True"))
-            graph.add_edge(Edge(inner_tail, head_node))
-
-            if else_ast:
-                inner_head, inner_tail = collect_nodes(else_ast, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(head_node, inner_head, label="False"))
-                graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
+            if body:
+                body_flow = collect_body(graph, body, Flow(head_node, tail_node))
+                connect_nodes(graph, head_node, body_flow.head, label="True")
+                connect_nodes(graph, body_flow.tail, head_node)
+                sinks += body_flow.sinks
+            if orelse:
+                else_flow = collect_body(graph, orelse, loop_flow)
+                connect_nodes(graph, head_node, else_flow.head, label="False")
+                connect_nodes(graph, else_flow.tail, tail_node, dir="none")
+                sinks += else_flow.sinks
             else:
-                graph.add_edge(Edge(head_node, tail_node, label="False", dir="none"))
-            return head_node, tail_node
+                connect_nodes(graph, head_node, tail_node, label="False", dir="none")
 
-        case ast.If(test=test_ast, orelse=else_ast):
-            head_node = Node(name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
-            tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
+            return Flow(head_node, tail_node, sinks)
 
-            graph.add_node(head_node)
-            graph.add_node(tail_node)
+        case ast.If(test=test_ast, body=body, orelse=orelse):
+            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
+            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
+            sinks = ()
 
-            inner_head, inner_tail = collect_nodes(ast_object.body, graph, loop_head, loop_tail)
-            graph.add_edge(Edge(head_node, inner_head, label="True"))
-
-            if inner_tail:  # or break
-                graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
-
-            if else_ast:
-                inner_head, inner_tail = collect_nodes(else_ast, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(head_node, inner_head, label="False"))
-                if inner_tail:  # or break
-                    graph.add_edge(Edge(inner_tail, tail_node, dir="none"))
+            if body:
+                body_flow = collect_body(graph, body, loop_flow)
+                connect_nodes(graph, head_node, body_flow.head, label="True")
+                connect_nodes(graph, body_flow.tail, tail_node, dir="none")
+                sinks += body_flow.sinks
+            if orelse:
+                else_flow = collect_body(graph, orelse, loop_flow)
+                connect_nodes(graph, head_node, else_flow.head, label="False")
+                connect_nodes(graph, else_flow.tail, tail_node, dir="none")
+                sinks += else_flow.sinks
             else:
-                graph.add_edge(Edge(head_node, tail_node, label="False", dir="none"))
+                connect_nodes(graph, head_node, tail_node, label="False", dir="none")
 
-            return head_node, tail_node
+            return Flow(head_node, tail_node, sinks)
 
-        case ast.Match(subject=subject_ast, cases=cases_ast):
-            head_node = Node(name=f"{name}_head", shape="diamond", label=ast.unparse(subject_ast))
-            tail_node = Node(name=f"{name}_tail", shape="point", width=0.01, height=0.01)
+        case ast.Match(subject=subject_ast, cases=cases):
+            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(subject_ast))
+            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
+            sinks = ()
 
-            graph.add_node(head_node)
-            graph.add_node(tail_node)
+            for case_ast in cases:
+                body_flow = collect_body(graph, case_ast.body, loop_flow)
+                connect_nodes(graph, head_node, body_flow.head, label=ast.unparse(case_ast.pattern))
+                connect_nodes(graph, body_flow.tail, tail_node, dir="none")
+                sinks += body_flow.sinks
 
-            for case_ast in cases_ast:
-                case_head, case_tail = collect_nodes(case_ast.body, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(head_node, case_head, label=ast.unparse(case_ast.pattern)))
-
-                if case_tail:  # or break/continue
-                    graph.add_edge(Edge(case_tail, tail_node, dir="none"))
-
-            return head_node, tail_node
+            return Flow(head_node, tail_node, sinks)
 
         case ast.With(items, body):
-            head_node, tail_node = collect_nodes(body, graph, loop_head, loop_tail)
+            flow = collect_body(graph, body, loop_flow)
+            head_node, tail_node = flow.head, flow.tail
 
             for i, item_ast in enumerate(items):
-                enter_node = Node(name=f"item_{ast_object.lineno}_{i}_enter", shape="parallelogram", label=ast.unparse(item_ast))
-                exit_node = Node(name=f"item_{ast_object.lineno}_{i}_exit", shape="parallelogram", label=f"exit {ast.unparse(item_ast.context_expr)}")
-                graph.add_node(enter_node)
-                graph.add_node(exit_node)
-                graph.add_edge(Edge(enter_node, head_node))
-                graph.add_edge(Edge(tail_node, exit_node))
+                enter_node = create_node(graph, name=f"item_{ast_object.lineno}_{i}_enter", shape="parallelogram", label=ast.unparse(item_ast))
+                exit_node = create_node(graph, name=f"item_{ast_object.lineno}_{i}_exit", shape="parallelogram", label=f"exit {ast.unparse(item_ast.context_expr)}")
+                connect_nodes(graph, enter_node, head_node)
+                connect_nodes(graph, tail_node, exit_node)
                 head_node, tail_node = enter_node, exit_node
 
-            return head_node, tail_node
+            return Flow(head_node, tail_node, flow.sinks)
 
         case (ast.Try(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)
               | ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)):
             sg = Subgraph(f"cluster_{name}")
             sg.set_graph_defaults(style="dashed")
-            head_node, body_tail = collect_nodes(body, sg, loop_head, loop_tail)
-            graph.add_subgraph(sg)
-            handler_node = Node(name=name + "_begin", label="exceptions?", shape="diamond")
-            handler_tail = Node(name=name + "_end", shape="point", width=0)
-            graph.add_node(handler_node)
-            graph.add_node(handler_tail)
-            graph.add_edge(Edge(body_tail, handler_node))
 
+            body_flow = collect_body(sg, body, loop_flow)
+            graph.add_subgraph(sg)
+
+            handler_node = create_node(graph, name=name + "_begin", label="exceptions?", shape="diamond")
+            handler_tail = create_node(graph, name=name + "_end", shape="point", width=0)
+
+            connect_nodes(graph, body_flow.tail, handler_node)
+
+            sinks = ()
             for handler in handlers:
-                inner_head, inner_tail = collect_nodes(handler.body, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(handler_node, inner_head, label=ast.unparse(handler.type)))
-                graph.add_edge(Edge(inner_tail, handler_tail, dir="none"))
+                handler_flow = collect_body(graph, handler.body, loop_flow)
+                connect_nodes(graph, handler_node, handler_flow.head, label=ast.unparse(handler.type))
+                connect_nodes(graph, handler_flow.tail, handler_tail, dir="none")
+                sinks += handler_flow.sinks
 
             if orelse:
-                inner_head, inner_tail = collect_nodes(orelse, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(handler_node, inner_head, label="None"))
-                graph.add_edge(Edge(inner_tail, handler_tail, dir="none"))
+                else_flow = collect_body(graph, orelse, loop_flow)
+                sinks += else_flow.sinks
+                connect_nodes(graph, handler_node, else_flow.head, label="None")
+                connect_nodes(graph, else_flow.tail, handler_tail, dir="none")
 
             if finalbody:
-                final_node = Node(name=name + "_final", shape="point", width=0)
-                graph.add_node(final_node)
-                inner_head, inner_tail = collect_nodes(orelse, graph, loop_head, loop_tail)
-                graph.add_edge(Edge(handler_tail, inner_head))
-                graph.add_edge(Edge(inner_tail, final_node, dir="none"))
-                tail_node = final_node
+                final_flow = collect_body(graph, finalbody, loop_flow)
+                connect_nodes(graph, handler_tail, final_flow.head)
+                tail_node = final_flow.tail
+                sinks += final_flow.sinks
             else:
                 tail_node = handler_tail
 
-            return head_node, tail_node
+            return Flow(body_flow.head, tail_node, sinks)
 
         case _:
             node = Node(name=name, shape="box", label=ast.unparse(ast_object))
             graph.add_node(node)
-            return node, node
+            return Flow(node, node, ())
