@@ -1,10 +1,10 @@
 import ast
 import inspect
-from dataclasses import dataclass
-from typing import Optional
 
 from abstracttree import print_tree
-from pydot import Dot, Node, Edge, Subgraph
+from pydot import Dot
+
+from helpers import FlowGraphBuilder, Flow
 
 
 def to_flowchart(f):
@@ -16,204 +16,172 @@ def to_flowchart(f):
     graph = Dot("flowchart")
     graph.set_node_defaults(fontname="consolas")
     graph.set_edge_defaults(fontname="consolas")
+    maker = FlowGraphBuilder(graph)
 
-    start_node = create_node(graph, name="start")
-    flow = collect_body(graph, function_ast.body, None)
-    sinks = flow.sinks
-    create_edge(graph, start_node, flow.head)
+    start_node = maker.create_start()
+    flow = collect_body(maker, function_ast.body, None)
+    maker.create_edge(start_node, flow.head)
 
-    sink_subgraph = Subgraph(rank="sink")
+    terminal_maker = maker.build_subgraph(rank="sink")
     if flow.tail:
-        stop_node = Node("stop", rank="sink")
-        sink_subgraph.add_node(stop_node)
-        create_edge(graph, flow.tail, stop_node)
+        stop_node = terminal_maker.create_node(name="stop")
+        maker.create_edge(flow.tail, stop_node)
 
-    for sink in sinks:
-        sink_subgraph.add_node(sink)
+    terminal_graph = terminal_maker.graph
+    for terminal in maker.terminals:
+        terminal_graph.add_node(terminal)
 
-    graph.add_subgraph(sink_subgraph)
+    graph.add_subgraph(terminal_graph)
 
     return graph
 
 
-@dataclass
-class Flow:
-    head: Node
-    tail: Optional[Node] = None
-    sinks: tuple[Node, ...] = ()
-
-
-def create_node(graph, **kwargs):
-    node = Node(**kwargs)
-    graph.add_node(node)
-    return node
-
-
-def create_edge(graph, node1, node2, **kwargs):
-    if node1 is None or node2 is None:
-        return None
-
-    edge = Edge(node1, node2, **kwargs)
-    graph.add_edge(edge)
-    return edge
-
-
-def collect_body(graph, body, loop_flow: Flow) -> Flow:
+def collect_body(maker, body, loop_flow: Flow) -> Flow:
     head, tail, sinks = None, None, ()
 
     for ast_object in body:
         name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
         match ast_object:
             case ast.Break():
-                create_edge(graph, head, loop_flow.tail, label="break", dir="none")
-                return Flow(head or loop_flow.tail, None, sinks)
+                break_node = maker.create_dummy(name=name)
+                maker.create_edge(head, break_node, dir="none")
+                maker.create_edge(break_node, loop_flow.tail, label="break", dir="none")
+                return Flow(head or break_node, None)
             case ast.Continue():
-                create_edge(graph, head, loop_flow.head, label="continue", dir="none")
-                return Flow(head or loop_flow.head, None, sinks)
+                continue_node = maker.create_dummy(name=name)
+                maker.create_edge(head, continue_node, dir="none")
+                maker.create_edge(continue_node, loop_flow.head, label="continue", dir="none")
+                return Flow(head or continue_node, None)
             case ast.Return() | ast.Raise():
-                sink_node = Node(name, shape="oval", label=ast.unparse(ast_object))
-                create_edge(graph, tail, sink_node)
-                return Flow(head or sink_node, None, sinks + (sink_node,))
+                terminal = maker.create_terminal(name=name, label=ast.unparse(ast_object))
+                maker.create_edge(tail, terminal)
+                return Flow(head or terminal)
             case _:
-                next_flow = process_construct(graph, ast_object, loop_flow)
-                create_edge(graph, tail, next_flow.head)
+                next_flow = process_construct(maker, ast_object, loop_flow)
+                maker.create_edge(tail, next_flow.head)
                 tail = next_flow.tail
-                sinks += next_flow.sinks
 
                 if head is None:
                     head = next_flow.head
 
-    return Flow(head, tail, sinks)
+    return Flow(head, tail)
 
 
-def process_construct(graph, ast_object, loop_flow=None) -> Flow:
+def process_construct(maker, ast_object, loop_flow=None) -> Flow:
     name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
     match ast_object:
         case ast.For(body=body, target=target_ast, iter=iter_ast, orelse=orelse):
-            head_node = create_node(graph, name=f"{name}_head", shape="block", label=f"for {ast.unparse(target_ast)} in {ast.unparse(iter_ast)}")
-            next_node = create_node(graph, name=f"{name}_next", shape="diamond", label=f"next {ast.unparse(target_ast)}?")
-            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
-            create_edge(graph, head_node, next_node)
-            sinks = ()
+            head_node = maker.create_action(name=f"{name}_head", label=f"for {ast.unparse(target_ast)} in {ast.unparse(iter_ast)}")
+            next_node = maker.create_decision(name=f"{name}_next", label=f"next {ast.unparse(target_ast)}?")
+            tail_node = maker.create_dummy(name=f"{name}_tail")
+            maker.create_edge(head_node, next_node)
 
             if body:
-                body_flow = collect_body(graph, body, Flow(head_node, tail_node))
-                create_edge(graph, next_node, body_flow.head, label="Yes")
-                create_edge(graph, body_flow.tail, next_node)
-                sinks += body_flow.sinks
+                body_flow = collect_body(maker, body, Flow(head_node, tail_node))
+                maker.create_edge(next_node, body_flow.head, label="Yes")
+                maker.create_edge(body_flow.tail, next_node)
             if orelse:
-                else_flow = collect_body(graph, orelse, loop_flow)
-                create_edge(graph, next_node, else_flow.head, label="No")
-                create_edge(graph, else_flow.tail, tail_node, dir="none")
-                sinks += else_flow.sinks
+                else_flow = collect_body(maker, orelse, loop_flow)
+                maker.create_edge(next_node, else_flow.head, label="No")
+                maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
-                create_edge(graph, next_node, tail_node, label="No", dir="none")
+                maker.create_edge(next_node, tail_node, label="No", dir="none")
 
-            return Flow(head_node, tail_node, sinks)
+            return Flow(head_node, tail_node)
 
         case ast.While(test=test_ast, body=body, orelse=orelse):
-            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
-            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
-            sinks = ()
+            head_node = maker.create_action(name=f"{name}_head", label=ast.unparse(test_ast) + "?")
+            tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(graph, body, Flow(head_node, tail_node))
-                create_edge(graph, head_node, body_flow.head, label="True")
-                create_edge(graph, body_flow.tail, head_node)
-                sinks += body_flow.sinks
+                body_flow = collect_body(maker, body, Flow(head_node))
+                maker.create_edge(head_node, body_flow.head, label="True")
+                maker.create_edge(body_flow.tail, head_node)
             if orelse:
-                else_flow = collect_body(graph, orelse, loop_flow)
-                create_edge(graph, head_node, else_flow.head, label="False")
-                create_edge(graph, else_flow.tail, tail_node, dir="none")
-                sinks += else_flow.sinks
+                else_flow = collect_body(maker, orelse, loop_flow)
+                maker.create_edge(head_node, else_flow.head, label="False")
+                maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
-                create_edge(graph, head_node, tail_node, label="False", dir="none")
+                maker.create_edge(head_node, tail_node, label="False", dir="none")
 
-            return Flow(head_node, tail_node, sinks)
+            return Flow(head_node, tail_node)
 
         case ast.If(test=test_ast, body=body, orelse=orelse):
-            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(test_ast) + "?")
-            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
-            sinks = ()
+            head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(test_ast) + "?")
+            tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(graph, body, loop_flow)
-                create_edge(graph, head_node, body_flow.head, label="True")
-                create_edge(graph, body_flow.tail, tail_node, dir="none")
-                sinks += body_flow.sinks
+                body_flow = collect_body(maker, body, loop_flow)
+                maker.create_edge(head_node, body_flow.head, label="True")
+                maker.create_edge(body_flow.tail, tail_node, dir="none")
             if orelse:
-                else_flow = collect_body(graph, orelse, loop_flow)
-                create_edge(graph, head_node, else_flow.head, label="False")
-                create_edge(graph, else_flow.tail, tail_node, dir="none")
-                sinks += else_flow.sinks
+                else_flow = collect_body(maker, orelse, loop_flow)
+                maker.create_edge(head_node, else_flow.head, label="False")
+                maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
-                create_edge(graph, head_node, tail_node, label="False", dir="none")
+                maker.create_edge(head_node, tail_node, label="False", dir="none")
 
-            return Flow(head_node, tail_node, sinks)
+            return Flow(head_node, tail_node)
 
         case ast.Match(subject=subject_ast, cases=cases):
-            head_node = create_node(graph, name=f"{name}_head", shape="diamond", label=ast.unparse(subject_ast))
-            tail_node = create_node(graph, name=f"{name}_tail", shape="point", width=0)
-            sinks = ()
+            head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(subject_ast))
+            tail_node = maker.create_dummy(name=f"{name}_tail")
 
             for case_ast in cases:
-                body_flow = collect_body(graph, case_ast.body, loop_flow)
-                create_edge(graph, head_node, body_flow.head, label=ast.unparse(case_ast.pattern))
-                create_edge(graph, body_flow.tail, tail_node, dir="none")
-                sinks += body_flow.sinks
+                body_flow = collect_body(maker, case_ast.body, loop_flow)
+                maker.create_edge(head_node, body_flow.head, label=ast.unparse(case_ast.pattern))
+                maker.create_edge(body_flow.tail, tail_node, dir="none")
 
-            return Flow(head_node, tail_node, sinks)
+            return Flow(head_node, tail_node)
 
         case ast.With(items, body):
-            flow = collect_body(graph, body, loop_flow)
+            flow = collect_body(maker, body, loop_flow)
             head_node, tail_node = flow.head, flow.tail
 
             for i, item_ast in enumerate(items):
-                enter_node = create_node(graph, name=f"item_{ast_object.lineno}_{i}_enter", shape="parallelogram", label=ast.unparse(item_ast))
-                exit_node = create_node(graph, name=f"item_{ast_object.lineno}_{i}_exit", shape="parallelogram", label=f"exit {ast.unparse(item_ast.context_expr)}")
-                create_edge(graph, enter_node, head_node)
-                create_edge(graph, tail_node, exit_node)
-                head_node, tail_node = enter_node, exit_node
+                enter_node = maker.create_context(name=f"item_{ast_object.lineno}_{i}_enter", label=ast.unparse(item_ast))
+                # exit_node = maker.create_context(name=f"item_{ast_object.lineno}_{i}_exit", label=f"exit {ast.unparse(item_ast.context_expr)}")
+                maker.create_edge(enter_node, head_node)
+                # maker.create_edge(tail_node, exit_node)
+                # head_node, tail_node = enter_node, exit_node
+                head_node = enter_node
 
-            return Flow(head_node, tail_node, flow.sinks)
+            return Flow(head_node, tail_node)
 
         case (ast.Try(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)
               | ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)):
-            sg = Subgraph(f"cluster_{name}")
-            sg.set_graph_defaults(style="dashed")
 
-            body_flow = collect_body(sg, body, loop_flow)
-            graph.add_subgraph(sg)
+            sg_maker = maker.build_subgraph(f"cluster_{name}", style="dashed", label="try")
 
-            handler_node = create_node(graph, name=name + "_begin", label="exceptions?", shape="diamond")
-            handler_tail = create_node(graph, name=name + "_end", shape="point", width=0)
+            body_flow = collect_body(sg_maker, body, loop_flow)
+            maker.graph.add_subgraph(sg_maker.graph)
 
-            create_edge(graph, body_flow.tail, handler_node)
+            handler_node = maker.create_decision(name=name + "_begin", label="exceptions?")
+            handler_tail = maker.create_dummy(name=name + "_end")
 
-            sinks = ()
+            maker.create_edge(body_flow.tail, handler_node)
+
             for handler in handlers:
-                handler_flow = collect_body(graph, handler.body, loop_flow)
-                create_edge(graph, handler_node, handler_flow.head, label=ast.unparse(handler.type))
-                create_edge(graph, handler_flow.tail, handler_tail, dir="none")
-                sinks += handler_flow.sinks
+                handler_flow = collect_body(maker, handler.body, loop_flow)
+                maker.create_edge(handler_node, handler_flow.head, label=ast.unparse(handler.type))
+                maker.create_edge(handler_flow.tail, handler_tail, dir="none")
 
             if orelse:
-                else_flow = collect_body(graph, orelse, loop_flow)
-                sinks += else_flow.sinks
-                create_edge(graph, handler_node, else_flow.head, label="None")
-                create_edge(graph, else_flow.tail, handler_tail, dir="none")
+                else_flow = collect_body(maker, orelse, loop_flow)
+                maker.create_edge(handler_node, else_flow.head, label="None")
+                maker.create_edge(else_flow.tail, handler_tail, dir="none")
+            else:
+                maker.create_edge(handler_node, handler_tail, label="None")
 
             if finalbody:
-                final_flow = collect_body(graph, finalbody, loop_flow)
-                create_edge(graph, handler_tail, final_flow.head)
+                final_flow = collect_body(maker, finalbody, loop_flow)
+                maker.create_edge(handler_tail, final_flow.head)
                 tail_node = final_flow.tail
-                sinks += final_flow.sinks
             else:
                 tail_node = handler_tail
 
-            return Flow(body_flow.head, tail_node, sinks)
+            return Flow(body_flow.head, tail_node)
 
         case _:
-            node = Node(name=name, shape="box", label=ast.unparse(ast_object))
-            graph.add_node(node)
-            return Flow(node, node, ())
+            node = maker.create_action(name=name, label=ast.unparse(ast_object))
+            return Flow(node, node)
