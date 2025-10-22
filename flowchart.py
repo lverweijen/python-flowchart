@@ -1,7 +1,6 @@
 import ast
 import inspect
 
-from abstracttree import print_tree
 from pydot import Dot
 
 from helpers import FlowGraphBuilder, Flow
@@ -10,7 +9,6 @@ from helpers import FlowGraphBuilder, Flow
 def to_flowchart(f):
     source = inspect.getsource(f)
     module_ast = ast.parse(source)
-    print_tree(module_ast)
     function_ast = module_ast.body[0]
 
     graph = Dot("flowchart")

@@ -74,8 +74,11 @@ def write_junk(lines):
 
 
 
-# graph = to_flowchart(fizzbuzz2)
+graph = to_flowchart(fizzbuzz2)
 # graph = to_flowchart(other_function)
 # graph = to_flowchart(SieveOfEratosthenes)
-graph = to_flowchart(write_junk)
+# graph = to_flowchart(write_junk)
 print(graph.to_string(indent=2))
+
+with open("fizzbuzz.png", "bw") as fp:
+    fp.write(graph.create(format="png"))
