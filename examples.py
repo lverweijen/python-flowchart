@@ -12,8 +12,6 @@ def fizzbuzz():
         else:
             print(num)
 
-        num += 1
-
 
 def fizzbuzz2():
     for i in range(100):
@@ -44,8 +42,6 @@ def infinite_fizz():
         num += 1
 
 
-
-
 def other_function(lo=0, l=[0, 2, 3, 4]):
     keep_running = True
     while (keep_running):
@@ -72,16 +68,17 @@ def SieveOfEratosthenes(num):
         if is_prime[p]:
             print(p)
 
-def read_junk(lines):
+def read_junk():
     try:
         with open("junk.txt") as fp:
             for line in fp.readlines():
-                if line == "q":
-                    break
-                elif line == "c":
-                    continue
-                else:
-                    print(line)
+                match line:
+                    case "quit":
+                        break
+                    case "ignore":
+                        continue
+                    case some_text:
+                        print(some_text)
             else:
                 print("no more lines!")
     except IOError:

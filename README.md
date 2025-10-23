@@ -24,21 +24,21 @@ The result looks like this:
 Here is a crazier example:
 
 ```python
-
-def read_junk(lines):
+def read_junk():
     try:
         with open("junk.txt") as fp:
             for line in fp.readlines():
-                if line == "q":
-                    break
-                elif line == "c":
-                    continue
-                else:
-                    print(line)
+                match line:
+                    case "quit":
+                        break
+                    case "ignore":
+                        continue
+                    case some_text:
+                        print(some_text)
             else:
                 print("no more lines!")
     except IOError:
-        print("Unable to read junk")
+        print("Unable to read junk.txt")
 ```
 
 ![junk.png](junk.png)
