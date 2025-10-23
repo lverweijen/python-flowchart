@@ -48,7 +48,7 @@ def collect_body(maker, body, loop_flow: Flow) -> Flow:
             case ast.Continue():
                 continue_node = maker.create_dummy(name=name)
                 maker.create_edge(head, continue_node, dir="none")
-                maker.create_edge(continue_node, loop_flow.head, label="continue", dir="none")
+                maker.create_edge(continue_node, loop_flow.head, label="continue", style="dashed")
                 return Flow(head or continue_node, None)
             case ast.Return() | ast.Raise():
                 terminal = maker.create_terminal(name=name, label=ast.unparse(ast_object))
@@ -69,26 +69,25 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
     name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
     match ast_object:
         case ast.For(body=body, target=target_ast, iter=iter_ast, orelse=orelse):
-            head_node = maker.create_action(name=f"{name}_head", label=f"for {ast.unparse(target_ast)} in {ast.unparse(iter_ast)}")
-            next_node = maker.create_decision(name=f"{name}_next", label=f"next {ast.unparse(target_ast)}?")
+            loopvar = ast.unparse(target_ast)
+            head_node = maker.create_loop(name=f"{name}_head", label=f"loop over {ast.unparse(iter_ast)}")
             tail_node = maker.create_dummy(name=f"{name}_tail")
-            maker.create_edge(head_node, next_node)
 
             if body:
                 body_flow = collect_body(maker, body, Flow(head_node, tail_node))
-                maker.create_edge(next_node, body_flow.head, label="Yes")
-                maker.create_edge(body_flow.tail, next_node)
+                maker.create_edge(head_node, body_flow.head, label=f"next {loopvar}")
+                maker.create_edge(body_flow.tail, head_node, style="dashed")
             if orelse:
                 else_flow = collect_body(maker, orelse, loop_flow)
-                maker.create_edge(next_node, else_flow.head, label="No")
+                maker.create_edge(head_node, else_flow.head, label="done")
                 maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
-                maker.create_edge(next_node, tail_node, label="No", dir="none")
+                maker.create_edge(head_node, tail_node, label="done", dir="none")
 
             return Flow(head_node, tail_node)
 
         case ast.While(test=test_ast, body=body, orelse=orelse):
-            head_node = maker.create_action(name=f"{name}_head", label=ast.unparse(test_ast) + "?")
+            head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(test_ast) + "?")
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
@@ -122,7 +121,7 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             return Flow(head_node, tail_node)
 
         case ast.Match(subject=subject_ast, cases=cases):
-            head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(subject_ast))
+            head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(subject_ast) + "?")
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             for case_ast in cases:

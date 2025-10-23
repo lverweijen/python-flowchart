@@ -48,3 +48,7 @@ The result looks like this:
 
 Consider building on plantuml instead of graphviz directly.
 Page 64 of https://pdf.plantuml.net/1.2020.22/PlantUML_Language_Reference_Guide_en.pdf
+
+## Similar projects
+
+- https://github.com/cdfmlr/pyflowchart

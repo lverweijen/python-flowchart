@@ -22,6 +22,10 @@ class FlowGraphBuilder:
     def create_action(self, **kwargs):
         return self.create_node(**kwargs, shape="block")
 
+    def create_loop(self, **kwargs):
+        # In my opinion a loop is both an action (spit out elements) and a decision (decide if continue).
+        return self.create_node(**kwargs, shape="hexagon")
+
     def create_decision(self, **kwargs):
         return self.create_node(**kwargs, shape="diamond")
 

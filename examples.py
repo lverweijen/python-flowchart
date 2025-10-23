@@ -25,6 +25,20 @@ def fizzbuzz2():
             print(i)
 
 
+def fizzbuzz3():
+    for i in range(100):
+        divisors = [d for d in [3, 5] if i % d == 0]
+        match divisors:
+            case [3]:
+                print("Fizz")
+            case [5]:
+                print("Buzz")
+            case [3, 5]:
+                print("FizzBuzz")
+            case _:
+                print(i)
+
+
 def other_function(lo=0, l=[0, 2, 3, 4]):
     keep_running = True
     while (keep_running):
@@ -75,6 +89,7 @@ def write_junk(lines):
 
 
 graph = to_flowchart(fizzbuzz2)
+# graph = to_flowchart(fizzbuzz3)
 # graph = to_flowchart(other_function)
 # graph = to_flowchart(SieveOfEratosthenes)
 # graph = to_flowchart(write_junk)
