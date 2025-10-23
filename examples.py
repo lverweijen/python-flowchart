@@ -2,30 +2,20 @@ from flowchart import to_flowchart
 
 
 def fizzbuzz():
-    for i in range(100):
-        match (i % 3 == 0, i % 5 == 0):
-            case True, True:
-                print("FizzBuzz")
-            case True, False:
-                print("Fizz")
-            case False, True:
-                print("Buzz")
-            case False, False:
-                print(i)
-
-def fizzbuzz2():
-    for i in range(100):
-        if i % 3 == 0 and i % 5 == 0:
+    for num in range(100):
+        if num % 3 == 0 and num % 5 == 0:
             print("FizzBuzz")
-        elif i % 3 == 0:
+        elif num % 3 == 0:
             print("Fizz")
-        elif i % 5 == 0:
+        elif num % 5 == 0:
             print("Buzz")
         else:
-            print(i)
+            print(num)
+
+        num += 1
 
 
-def fizzbuzz3():
+def fizzbuzz2():
     for i in range(100):
         divisors = [d for d in [3, 5] if i % d == 0]
         match divisors:
@@ -37,6 +27,23 @@ def fizzbuzz3():
                 print("FizzBuzz")
             case _:
                 print(i)
+
+
+def infinite_fizz():
+    num = 0
+    while True:
+        if num % 3 == 0 and num % 5 == 0:
+            print("FizzBuzz")
+        elif num % 3 == 0:
+            print("Fizz")
+        elif num % 5 == 0:
+            print("Buzz")
+        else:
+            print(num)
+
+        num += 1
+
+
 
 
 def other_function(lo=0, l=[0, 2, 3, 4]):
@@ -81,28 +88,11 @@ def read_junk(lines):
         print("Unable to read junk")
 
 
-def crazy_division():
-    try:
-        (a + 1) / b
-    except TypeError:
-        pass
-    except ValueError:
-        print("Is division even possible?")
-    else:
-        print("No worries")
+with open("fizzbuzz.png", "bw") as fp:
+    graph = to_flowchart(fizzbuzz)
+    fp.write(graph.create(format="png"))
 
-
-
-
-# graph = to_flowchart(fizzbuzz2)
-# graph = to_flowchart(fizzbuzz3)
-# graph = to_flowchart(other_function)
-# graph = to_flowchart(SieveOfEratosthenes)
-graph = to_flowchart(read_junk)
-print(graph.to_string(indent=2))
-
-# with open("fizzbuzz.png", "bw") as fp:
-#     fp.write(graph.create(format="png"))
 
 with open("junk.png", "bw") as fp:
+    graph = to_flowchart(read_junk)
     fp.write(graph.create(format="png"))

@@ -55,7 +55,7 @@ def read_junk(lines):
     - [x] while
       - [x] basic
       - [x] while/else
-      - [ ] Special-case `while True:`
+      - [x] Special-case `while True:`
     - [x] break
     - [x] continue
 - [x] return

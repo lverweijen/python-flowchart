@@ -86,12 +86,23 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
 
             return Flow(head_node, tail_node)
 
+        case ast.While(test=ast.Constant(True), body=body):
+            head_node = maker.create_dummy(name=f"{name}_head")
+            tail_node = maker.create_dummy(name=f"{name}_tail")
+
+            if body:
+                body_flow = collect_body(maker, body, Flow(head_node, tail_node))
+                maker.create_edge(head_node, body_flow.head, dir="none")
+                maker.create_edge(body_flow.tail, head_node, dir="none")
+
+            return Flow(head_node, tail_node)
+
         case ast.While(test=test_ast, body=body, orelse=orelse):
             head_node = maker.create_decision(name=f"{name}_head", label=ast.unparse(test_ast) + "?")
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(maker, body, Flow(head_node))
+                body_flow = collect_body(maker, body, Flow(head_node, tail_node))
                 maker.create_edge(head_node, body_flow.head, label="True")
                 maker.create_edge(body_flow.tail, head_node)
             if orelse:
