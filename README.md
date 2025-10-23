@@ -21,6 +21,28 @@ The result looks like this:
 
 ![fizzbuzz.png](fizzbuzz.png)
 
+Here is a crazier example:
+
+```python
+
+def read_junk(lines):
+    try:
+        with open("junk.txt") as fp:
+            for line in fp.readlines():
+                if line == "q":
+                    break
+                elif line == "c":
+                    continue
+                else:
+                    print(line)
+            else:
+                print("no more lines!")
+    except IOError:
+        print("Unable to read junk")
+```
+
+![junk.png](junk.png)
+
 ## TODO
 
 - [x] if/else/elsif
@@ -41,7 +63,7 @@ The result looks like this:
     - [x] externally
     - [ ] internally (not really supported, I guess)
 - [x] try/except
-- [x] with block (not too happy about these yet)
+- [x] with block
 - [ ] Nested functions (maybe display them in a subgraph?)
 
 ## Ideas

@@ -65,17 +65,23 @@ def SieveOfEratosthenes(num):
         if is_prime[p]:
             print(p)
 
-def write_junk(lines):
-    with open("junk.txt"):
-        for line in lines:
-            if line == "q":
-                break
+def read_junk(lines):
+    try:
+        with open("junk.txt") as fp:
+            for line in fp.readlines():
+                if line == "q":
+                    break
+                elif line == "c":
+                    continue
+                else:
+                    print(line)
             else:
-                print(line)
-        else:
-            print("no more lines!")
-            return 5
+                print("no more lines!")
+    except IOError:
+        print("Unable to read junk")
 
+
+def crazy_division():
     try:
         (a + 1) / b
     except TypeError:
@@ -88,12 +94,15 @@ def write_junk(lines):
 
 
 
-graph = to_flowchart(fizzbuzz2)
+# graph = to_flowchart(fizzbuzz2)
 # graph = to_flowchart(fizzbuzz3)
 # graph = to_flowchart(other_function)
 # graph = to_flowchart(SieveOfEratosthenes)
-# graph = to_flowchart(write_junk)
+graph = to_flowchart(read_junk)
 print(graph.to_string(indent=2))
 
-with open("fizzbuzz.png", "bw") as fp:
+# with open("fizzbuzz.png", "bw") as fp:
+#     fp.write(graph.create(format="png"))
+
+with open("junk.png", "bw") as fp:
     fp.write(graph.create(format="png"))
