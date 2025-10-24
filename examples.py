@@ -70,19 +70,21 @@ def SieveOfEratosthenes(num):
 
 def read_junk():
     try:
-        with open("junk.txt") as fp:
-            for line in fp.readlines():
+        with open("junk.txt") as junk_file:
+            for line in junk_file:
                 match line:
+                    case "ping":
+                        print("pong")
                     case "quit":
                         break
                     case "ignore":
                         continue
-                    case some_text:
-                        print(some_text)
+                    case other_text:
+                        print(other_text)
             else:
                 print("no more lines!")
     except IOError:
-        print("Unable to read junk")
+        print("Unable to read junk.txt")
 
 
 with open("fizzbuzz.png", "bw") as fp:

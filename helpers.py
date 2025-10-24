@@ -17,7 +17,7 @@ class FlowGraphBuilder:
         return node
 
     def create_start(self, name="start", **kwargs):
-        return self.create_node(name=name, **kwargs, shape="oval")
+        return self.create_node(name=name, **kwargs, shape="block", style="rounded")
 
     def create_action(self, **kwargs):
         return self.create_node(**kwargs, shape="block")
@@ -36,7 +36,7 @@ class FlowGraphBuilder:
         return self.create_node(**kwargs, shape="parallelogram")
 
     def create_terminal(self, **kwargs):
-        terminal = Node(**kwargs, shape="oval")
+        terminal = Node(**kwargs, shape="block", style="rounded")
         self.terminals.append(terminal)
         return terminal
 

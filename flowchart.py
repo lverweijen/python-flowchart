@@ -11,7 +11,7 @@ def to_flowchart(f):
     module_ast = ast.parse(source)
     function_ast = module_ast.body[0]
 
-    graph = Dot("flowchart", compound=True)
+    graph = Dot("flowchart", compound=True, strict=True)
     graph.set_node_defaults(fontname="consolas")
     graph.set_edge_defaults(fontname="consolas")
     maker = FlowGraphBuilder(graph)
@@ -22,7 +22,7 @@ def to_flowchart(f):
 
     terminal_maker = maker.build_subgraph(rank="sink")
     if flow.tail:
-        stop_node = terminal_maker.create_node(name="stop")
+        stop_node = terminal_maker.create_start(name="stop")
         maker.create_edge(flow.tail, stop_node)
 
     terminal_graph = terminal_maker.graph
@@ -34,25 +34,31 @@ def to_flowchart(f):
     return graph
 
 
-def collect_body(maker, body, loop_flow: Flow) -> Flow:
-    head, tail, sinks = None, None, ()
+def collect_body(maker, body, loop_flow: Flow, tail=None) -> Flow:
+    head = None
 
     for ast_object in body:
         name = f"{type(ast_object).__name__.casefold()}_{ast_object.lineno}"
         match ast_object:
             case ast.Break():
-                break_node = maker.create_dummy(name=name)
-                maker.create_edge(head, break_node, dir="none")
-                maker.create_edge(break_node, loop_flow.tail, dir="none", style="bold")
-                return Flow(head or break_node, None)
+                # Note: This edge is already created in process_construct (use strict=True).
+                maker.create_edge(head or tail, loop_flow.tail, dir="none", style="bold")
+                return Flow(head or loop_flow.tail, None)
+                # break_node = maker.create_dummy(name=name)
+                # maker.create_edge(head, break_node, dir="none")
+                # maker.create_edge(break_node, loop_flow.tail, dir="none", style="bold")
+                # return Flow(head or break_node, None)
             case ast.Continue():
-                continue_node = maker.create_dummy(name=name)
-                maker.create_edge(head, continue_node, dir="none")
-                maker.create_edge(continue_node, loop_flow.head, style="dashed")
-                return Flow(head or continue_node, None)
+                # Note: This edge is already created in process_construct (use strict=True).
+                maker.create_edge(head or tail, loop_flow.head, style="dashed")
+                return Flow(head or loop_flow.head, None)
+                # continue_node = maker.create_dummy(name=name)
+                # maker.create_edge(head, continue_node, dir="none")
+                # maker.create_edge(continue_node, loop_flow.head, style="dashed")
+                # return Flow(head or continue_node, None)
             case ast.Return() | ast.Raise():
                 terminal = maker.create_terminal(name=name, label=ast.unparse(ast_object))
-                maker.create_edge(tail, terminal)
+                maker.create_edge(tail, terminal, style="bold" if loop_flow else "")
                 return Flow(head or terminal)
             case _:
                 next_flow = process_construct(maker, ast_object, loop_flow)
@@ -74,11 +80,11 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(maker, body, Flow(head_node, tail_node))
+                body_flow = collect_body(maker, body, Flow(head_node, tail_node), tail=head_node)
                 maker.create_edge(head_node, body_flow.head, label=f"next {loopvar}")
                 maker.create_edge(body_flow.tail, head_node, style="dashed")
             if orelse:
-                else_flow = collect_body(maker, orelse, loop_flow)
+                else_flow = collect_body(maker, orelse, loop_flow, tail=head_node)
                 maker.create_edge(head_node, else_flow.head, label="done")
                 maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
@@ -86,7 +92,7 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
 
             return Flow(head_node, tail_node)
 
-        case ast.While(test=ast.Constant(True), body=body):
+        case ast.While(test=ast.Constant(infinite_loop), body=body) if infinite_loop:
             head_node = maker.create_dummy(name=f"{name}_head")
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
@@ -102,11 +108,11 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(maker, body, Flow(head_node, tail_node))
+                body_flow = collect_body(maker, body, Flow(head_node, tail_node), tail=head_node)
                 maker.create_edge(head_node, body_flow.head, label="True")
                 maker.create_edge(body_flow.tail, head_node)
             if orelse:
-                else_flow = collect_body(maker, orelse, loop_flow)
+                else_flow = collect_body(maker, orelse, loop_flow, tail=head_node)
                 maker.create_edge(head_node, else_flow.head, label="False")
                 maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
@@ -119,11 +125,11 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             if body:
-                body_flow = collect_body(maker, body, loop_flow)
+                body_flow = collect_body(maker, body, loop_flow, tail=head_node)
                 maker.create_edge(head_node, body_flow.head, label="True")
                 maker.create_edge(body_flow.tail, tail_node, dir="none")
             if orelse:
-                else_flow = collect_body(maker, orelse, loop_flow)
+                else_flow = collect_body(maker, orelse, loop_flow, tail=head_node)
                 maker.create_edge(head_node, else_flow.head, label="False")
                 maker.create_edge(else_flow.tail, tail_node, dir="none")
             else:
@@ -136,7 +142,7 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             tail_node = maker.create_dummy(name=f"{name}_tail")
 
             for case_ast in cases:
-                body_flow = collect_body(maker, case_ast.body, loop_flow)
+                body_flow = collect_body(maker, case_ast.body, loop_flow, tail=head_node)
                 maker.create_edge(head_node, body_flow.head, label=ast.unparse(case_ast.pattern))
                 maker.create_edge(body_flow.tail, tail_node, dir="none")
 
@@ -147,13 +153,13 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
             head_node, tail_node = flow.head, flow.tail
 
             for i, item_ast in enumerate(items):
-                enter_node = maker.create_setup(name=f"item_{ast_object.lineno}_{i}_enter", label=ast.unparse(item_ast))
-                exit_node = maker.create_dummy(name=f"item_{ast_object.lineno}_{i}_exit", label=f"exit {ast.unparse(item_ast.context_expr)}")
+                enter_node = maker.create_action(name=f"item_{ast_object.lineno}_{i}_enter", label=ast.unparse(item_ast))
+                exit_node = maker.create_dummy(name=f"item_{ast_object.lineno}_{i}_exit")
                 maker.create_edge(enter_node, head_node)
                 if item_ast.optional_vars:
                     label = f"closing {ast.unparse(item_ast.optional_vars)}"
                 else:
-                    label = "closing"
+                    label = f"closing {ast.unparse(item_ast.context_expr)}"
                 maker.create_edge(tail_node, exit_node, style="dotted", label=label, dir="none")
                 head_node, tail_node = enter_node, exit_node
 
@@ -163,7 +169,7 @@ def process_construct(maker, ast_object, loop_flow=None) -> Flow:
               | ast.TryStar(body=body, handlers=handlers, orelse=orelse, finalbody=finalbody)):
 
             cluster_name = f"cluster_{name}"
-            sg_maker = maker.build_subgraph(cluster_name, style="dashed")
+            sg_maker = maker.build_subgraph(cluster_name)  # , style="dashed")
 
             body_flow = collect_body(sg_maker, body, loop_flow)
             maker.graph.add_subgraph(sg_maker.graph)

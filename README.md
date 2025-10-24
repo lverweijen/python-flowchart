@@ -4,16 +4,16 @@ It requires pydot and graphviz to be installed.
 ## Quick demo
 
 ```python
-def fizzbuzz2():
-    for i in range(100):
-        if i % 3 == 0 and i % 5 == 0:
+def fizzbuzz():
+    for num in range(100):
+        if num % 3 == 0 and num % 5 == 0:
             print("FizzBuzz")
-        elif i % 3 == 0:
+        elif num % 3 == 0:
             print("Fizz")
-        elif i % 5 == 0:
+        elif num % 5 == 0:
             print("Buzz")
         else:
-            print(i)
+            print(num)
 ```
 
 is converted to a flowchart in graphviz.
@@ -26,15 +26,17 @@ Here is a crazier example:
 ```python
 def read_junk():
     try:
-        with open("junk.txt") as fp:
-            for line in fp.readlines():
+        with open("junk.txt") as junk_file:
+            for line in junk_file:
                 match line:
+                    case "ping":
+                        print("pong")
                     case "quit":
                         break
                     case "ignore":
                         continue
-                    case some_text:
-                        print(some_text)
+                    case other_text:
+                        print(other_text)
             else:
                 print("no more lines!")
     except IOError:
